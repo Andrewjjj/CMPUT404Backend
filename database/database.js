@@ -6,16 +6,25 @@ const dbConfig = {
     password: process.env.DB_PASS,
     database: process.env.DB_NAME,
     port: process.env.DB_PORT,
+    connectionLimit: 2,
 }
 
 const promisePool = mysql.createPool(dbConfig).promise()
 
 const generateNewId = () => {
-    return uuidv4().replaceAll("-", "")
+    return uuidv4().replace(/-/g, "")
+}
+// Author
+async function getAllAuthors() {
+    return await promisePool.execute(
+    `SELECT Username as displayName, GithubURL as github, AuthorID as id, ProfileImageURL as profileImage
+    FROM author`)
+    .then(([row]) => { 
+        return row
+    })
 }
 
-// Author
-async function getAllAuthors(limit, offset) {
+async function getAllAuthorsPaginated(limit, offset) {
     return await promisePool.execute(
     `SELECT Username as displayName, GithubURL as github, AuthorID as id, ProfileImageURL as profileImage
     FROM author
@@ -69,6 +78,7 @@ async function getAllFollowersByAuthorUID(authorID){
     })
 }
 
+
 async function removeFollower(authorID, followerID){
     return await promisePool.execute(`
     DELETE FROM follow
@@ -95,6 +105,22 @@ async function checkFollower(authorID, followerID){
         return res.length == 1
     })
 }
+
+
+// Friend
+async function getAllFriendsFromID(targetID){
+    return await promisePool.execute(`
+    SELECT Username as displayName, GithubURL as github, AuthorID as id, ProfileImageURL as profileImage
+    FROM friend
+    LEFT JOIN author
+    ON friend.FriendID = author.AuthorID
+    WHERE friend.TargetID = ?`,
+    [targetID])
+    .then(([res]) => {
+        return res;
+    })
+}
+
 
 
 // Friend Request
@@ -143,9 +169,20 @@ async function getAllFriendRequestFromID(targetID){
     SELECT Username as displayName, GithubURL as github, AuthorID as id, ProfileImageURL as profileImage
     FROM friend_request
     LEFT JOIN author
-    ON friend_request.targetID = author.AuthorID
-    WHERE friend_request.targetID = ?`,
+    ON friend_request.RequesterID = author.AuthorID
+    WHERE friend_request.TargetID = ?`,
     [targetID])
+    .then(([res]) => {
+        return res;
+    })
+}
+
+async function checkIfFriendRequested(targetID, requesterID){
+    return await promisePool.execute(`
+    SELECT *
+    FROM friend_request
+    WHERE friend_request.TargetID = ? AND friend_request.RequesterID = ?`,
+    [targetID, requesterID])
     .then(([res]) => {
         return res;
     })
@@ -177,6 +214,14 @@ async function addCommentsToPost(postID, authorID, content, contentType, publish
 }
 
 // Likes
+async function addLikesOnPost(postID, authorID) {
+    return await promisePool.execute(`
+    INSERT INTO post_like
+    (PostID, AuthorID)
+    VALUES (?, ?)`,
+    [postID, authorID])
+}
+
 async function getLikesOnPost(postID){
     return await promisePool.execute(`
     SELECT * FROM post_like
@@ -220,9 +265,9 @@ async function getAuthorLikes(authorID){
 // Posts
 async function getPostByPostID(postID) {
     return await promisePool.execute(`
-    SELECT * FROM post
-    LEFT JOIN author
-    ON post.AuthorID = author.AuthorID
+    SELECT PostID as id, AuthorID as authorID, Title as title, Description as description, ContentType as contentType,
+    Source as source, Origin as origin, Content as content, Visibility as visibility, Unlisted as unlisted, Published as published
+    FROM post
     WHERE PostID = ?`,
     [postID])
     .then(([res]) => {
@@ -263,7 +308,9 @@ async function createPostWithPostID(postID, authorID, title, source, origin, des
 
 async function getAllAuthorPosts(authorID) {
     return await promisePool.execute(`
-    SELECT * FROM post
+    SELECT PostID as id, AuthorID as authorID, Title as title, Description as description, ContentType as contentType,
+    Source as source, Origin as origin, Content as content, Visibility as visibility, Unlisted as unlisted, Published as published
+    FROM post
     WHERE AuthorID = ?`,
     [authorID])
     .then(([res]) => {
@@ -289,7 +336,7 @@ async function createPost(authorID, title, source, origin, description, contentT
 
 async function getPostCategories(postID) {
     return await promisePool.execute(`
-    SELECT Category FROM post_category
+    SELECT Category as category FROM post_category
     WHERE PostID = ?`,
     [postID])
     .then(([res]) => {
@@ -315,7 +362,8 @@ async function removePostCategories(postID) {
 // Inbox
 async function getInbox(authorID) {
     return await promisePool.execute(`
-    SELECT * FROM inbox
+    SELECT InboxID as inboxID, AuthorID as authorID, Type as type, ID as id 
+    FROM inbox
     WHERE AuthorID = ?`,
     [authorID])
     .then(([res]) => {
@@ -343,7 +391,8 @@ async function removeInbox(authorID) {
 // login
 async function loginAuthor(username, password) {
     return await promisePool.execute(`
-    SELECT * FROM author
+    SELECT AuthorID as id, Username as displayName, GithubURL as github, ProfileImageURL as profileImage 
+    FROM author
     WHERE Username = ? AND Password = ?`,
     [username, password])
     .then(([row]) => {
@@ -392,7 +441,66 @@ async function removeNode(nodeID) {
     [nodeID])
 }
 
+async function getAllRegistrationRequests(){
+    return await promisePool.execute(`
+    SELECT * FROM register`)
+    .then(([res]) => {
+        return res;
+    })
+}
+
+async function registerRequest(username, password, githubUrl, profileImageUrl){
+    return await promisePool.execute(`
+    INSERT INTO register (Username, Password, GithubURL, ProfileImageURL)
+    VALUES (?, ?, ?, ?)`, 
+    [username, password, githubUrl, profileImageUrl])
+}
+
+async function approveRegisterRequest(registerID){
+    const connection = await promisePool.getConnection()
+    try{
+        await connection.beginTransaction()
+        const userInfo = (await connection.query(`SELECT * FROM register WHERE RegisterID = ?`, [registerID]).then(([res]) => res))[0]
+        await connection.query(`DELETE FROM register WHERE RegisterID = ?`, [registerID])
+        await connection.execute(`
+        INSERT INTO 
+        author (AuthorID, Username, Password, GithubURL, ProfileImageURL)
+        VALUES (?, ?, ?, ?, ?)`, 
+        [generateNewId(), userInfo.Username, userInfo.Password, userInfo.GithubURL, userInfo.ProfileImageURL])
+        await connection.commit()
+    }
+    catch(err){
+        await connection.rollback()
+    }
+}
+
+async function rejectRegisterRequest(registerID){
+    return await promisePool.execute(`
+    DELETE FROM register WHERE RegisterID = ?`, [registerID])
+}
+
+async function createImage(imgType, blob) {
+    let imgID = generateNewId();
+    return await promisePool.execute(`
+    INSERT INTO image (ImageID, ImageType, BlobContent) VALUES (?, ?, ?)`,
+    [imgID, imgType, blob])
+    .then(() => {
+        return imgID;
+    })
+}
+
+async function getImage(imgID) {
+    return await promisePool.execute(`
+    SELECT * FROM image WHERE ImageID = ?`,
+    [imgID])
+    .then(([res]) => {
+        return res;
+    })
+}
+
+
 module.exports.getAllAuthors = getAllAuthors;
+module.exports.getAllAuthorsPaginated = getAllAuthorsPaginated;
 module.exports.getAuthorByAuthorID = getAuthorByAuthorID;
 module.exports.createAuthor = createAuthor;
 module.exports.updateAuthor = updateAuthor;
@@ -402,14 +510,19 @@ module.exports.removeFollower = removeFollower;
 module.exports.addFollower = addFollower;
 module.exports.checkFollower = checkFollower;
 
+module.exports.getAllFriendsFromID = getAllFriendsFromID;
+
+
 module.exports.sendFriendRequest = sendFriendRequest;
 module.exports.approveFriendRequest = approveFriendRequest;
 module.exports.rejectFriendRequest = rejectFriendRequest;
 module.exports.getAllFriendRequestFromID = getAllFriendRequestFromID;
+module.exports.checkIfFriendRequested = checkIfFriendRequested;
 
 module.exports.getAllCommentsByPostID = getAllCommentsByPostID;
 module.exports.addCommentsToPost = addCommentsToPost;
 
+module.exports.addLikesOnPost = addLikesOnPost;
 module.exports.getLikesOnPost = getLikesOnPost;
 module.exports.getLikesOnComment = getLikesOnComment;
 module.exports.addAuthorLikes = addAuthorLikes;
@@ -437,3 +550,11 @@ module.exports.getAllNodes = getAllNodes;
 module.exports.addNode = addNode;
 module.exports.removeAllNodes = removeAllNodes;
 module.exports.removeNode = removeNode;
+
+module.exports.getAllRegistrationRequests = getAllRegistrationRequests;
+module.exports.registerRequest = registerRequest;
+module.exports.approveRegisterRequest = approveRegisterRequest;
+module.exports.rejectRegisterRequest = rejectRegisterRequest;
+
+module.exports.createImage = createImage;
+module.exports.getImage = getImage;

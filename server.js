@@ -12,10 +12,12 @@ const adminRoutes = require('./routes/admin')
 const authorRoutes = require('./routes/author')
 const commentRoutes = require('./routes/comment')
 const followerRoutes = require('./routes/follower')
+const friendRoutes = require('./routes/friend')
 const friendRequestRoutes = require('./routes/friendRequest')
 const inboxRoutes = require('./routes/inbox')
 const likeRoutes = require('./routes/like')
 const postRoutes = require('./routes/post');
+const registerRoutes = require('./routes/register');
 
 
 app.use(adminRoutes);
@@ -23,9 +25,11 @@ app.use(authorRoutes);
 app.use(postRoutes);
 app.use(followerRoutes);
 app.use(commentRoutes);
+app.use(friendRoutes);
 app.use(friendRequestRoutes);
 app.use(inboxRoutes);
 app.use(likeRoutes);
+app.use(registerRoutes);
 
 const authTestRoutes = require('./routes/_other');
 app.use(authTestRoutes);
