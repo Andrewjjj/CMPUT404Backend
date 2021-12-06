@@ -148,6 +148,11 @@ async function approveFriendRequest(targetID, requesterID){
         INSERT INTO friend (TargetID, FriendID)
         VALUES (?, ?)`, 
         [targetID, requesterID])
+
+        await promisePool.query(`
+        INSERT INTO friend (TargetID, FriendID)
+        VALUES (?, ?)`, 
+        [requesterID, targetID])
         
         await connection.commit()
         return;
@@ -190,6 +195,14 @@ async function checkIfFriendRequested(targetID, requesterID){
 
 
 // Comments
+async function getCommentByCommentID(commentID) {
+    return await promisePool.execute(`
+    SELECT * FROM comment WHERE CommentID = ?`,[commentID])
+    .then(([res]) => {
+        return res;
+    })
+}
+
 async function getAllCommentsByPostID(postID){
     return await promisePool.execute(`
     SELECT CommentID as id, comment.Content as comment, comment.ContentType as contentType, PublishedTime as published, comment.AuthorID
@@ -388,6 +401,13 @@ async function removeInbox(authorID) {
     [authorID])
 }
 
+async function removeInboxByFriendRequest(authorID, requesterID) {
+    return await promisePool.execute(`
+    DELETE FROM inbox
+    WHERE AuthorID = ? AND ID = ? AND Type = "friendRequest"`,
+    [authorID, requesterID])
+}
+
 // login
 async function loginAuthor(username, password) {
     return await promisePool.execute(`
@@ -519,6 +539,7 @@ module.exports.rejectFriendRequest = rejectFriendRequest;
 module.exports.getAllFriendRequestFromID = getAllFriendRequestFromID;
 module.exports.checkIfFriendRequested = checkIfFriendRequested;
 
+module.exports.getCommentByCommentID = getCommentByCommentID;
 module.exports.getAllCommentsByPostID = getAllCommentsByPostID;
 module.exports.addCommentsToPost = addCommentsToPost;
 
@@ -542,6 +563,7 @@ module.exports.removePostCategories = removePostCategories;
 module.exports.getInbox = getInbox;
 module.exports.postInbox = postInbox;
 module.exports.removeInbox = removeInbox;
+module.exports.removeInboxByFriendRequest = removeInboxByFriendRequest; 
 
 module.exports.loginAuthor = loginAuthor;
 module.exports.loginAdmin = loginAdmin;

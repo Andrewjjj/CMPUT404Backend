@@ -1,6 +1,15 @@
 const db = require("../database/database");
 const WEB_HOST = process.env.WEB_HOST
 
+// exports.getComment = async (req, res, next) => {
+//     try {
+//         // const {authroID, postID, commentID} = req.params;
+//         // let comment = await db.getCommentByCommentID(commentID)
+//     } catch(err) {
+
+//     }
+// }
+
 exports.getAllComments = async (req, res, next) => {
     try{
         const { authorID, postID } = req.params;
@@ -55,7 +64,7 @@ exports.addComments = async (req, res, next) => {
             return res.status(400).send("Bad Request")
         }
         const { content, contentType, publishedTime } = comment;
-        await db.addCommentsToPost(postID, authorID, content, contentType, publishedTime)
+        await db.addCommentsToPost(postID, comment.authorID, content, contentType, publishedTime)
         res.status(200).end()
     }
     catch(err){
